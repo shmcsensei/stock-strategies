@@ -1,0 +1,126 @@
+//@version=5
+strategy("TEMP 1 Day",initial_capital=56,overlay=true, pyramiding = 100)
+
+// TEMP
+
+// ######################
+// VIX data
+// ######################
+vix_open = request.security(symbol="VIX", timeframe="D", expression = open)
+vix_close = request.security(symbol="VIX", timeframe="D", expression = close)
+vix_high = request.security(symbol="VIX", timeframe="D", expression = high)
+vix_low = request.security(symbol="VIX", timeframe="D", expression = low)
+
+// ######################
+// Bollinger Bands
+// ######################
+peak_src = vix_close
+// basis = ta.ema(peak_src, 14)
+peak_basis = (ta.sma(peak_src, 15) + ta.median(peak_src, 15)) / 2
+peak_upper_dev = 2.0 * ta.stdev(peak_src, 49)
+peak_upper = peak_basis + peak_upper_dev
+plot(peak_basis, "Peak Basis", color=#FF6D00)
+p1 = plot(peak_upper, "Peak Upper", color=#2962FF)
+// p2 = plot(lower, "Lower", color=#2962FF, offset = offset)
+// fill(p1, p2, title = "Background", color=color.rgb(33, 150, 243, 95))
+
+// ######################
+// Stocastic
+// ######################
+periodK = input.int(20, title="%K Length", minval=1)
+smoothK = input.int(1, title="%K Smoothing", minval=1)
+periodD = input.int(3, title="%D Smoothing", minval=1)
+k = ta.sma(ta.stoch(vix_close, vix_high, vix_low, periodK), smoothK)
+d = ta.sma(k, periodD)
+// plot(k, title="%K", color=#2962FF)
+// plot(d, title="%D", color=#FF6D00)
+// h0 = hline(80, "Upper Band", color=#787B86)
+// hline(50, "Middle Band", color=color.new(#787B86, 50))
+// h1 = hline(20, "Lower Band", color=#787B86)
+// fill(h0, h1, color=color.rgb(33, 150, 243, 90), title="Background")
+
+// ######################
+// MACD
+// ######################
+// Getting inputs
+fast_length = input(title="Fast Length", defval=12)
+slow_length = input(title="Slow Length", defval=26)
+macd_src = vix_close
+signal_length = input.int(title="Signal Smoothing",  minval = 1, maxval = 50, defval = 9)
+sma_source = input.string(title="Oscillator MA Type",  defval="EMA", options=["SMA", "EMA"])
+sma_signal = input.string(title="Signal Line MA Type", defval="EMA", options=["SMA", "EMA"])
+// Plot colors
+col_macd = input(#2962FF, "MACD Line", group="Color Settings", inline="MACD")
+col_signal = input(#FF6D00, "Signal Line", group="Color Settings", inline="Signal")
+col_grow_above = input(#26A69A, "Above Grow", group="Histogram", inline="Above")
+col_fall_above = input(#B2DFDB, "Fall", group="Histogram", inline="Above")
+col_grow_below = input(#FFCDD2, "Below Grow", group="Histogram", inline="Below")
+col_fall_below = input(#FF5252, "Fall", group="Histogram", inline="Below")
+// Calculating
+fast_ma = sma_source == "SMA" ? ta.sma(macd_src, fast_length) : ta.ema(macd_src, fast_length)
+slow_ma = sma_source == "SMA" ? ta.sma(macd_src, slow_length) : ta.ema(macd_src, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal == "SMA" ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+// hline(0, "Zero Line", color=color.new(#787B86, 50))
+// plot(hist, title="Histogram", style=plot.style_columns, color=(hist>=0 ? (hist[1] < hist ? col_grow_above : col_fall_above) : (hist[1] < hist ? col_grow_below : col_fall_below)))
+// plot(macd, title="MACD", color=col_macd)
+// plot(signal, title="Signal", color=col_signal)
+
+// ######################
+// Singals
+// ######################
+peak = vix_close >= peak_upper or vix_open >= peak_upper or vix_high >= peak_upper
+
+trough = k < 20 and d < 20 and ta.crossover(k, d) and hist<0. and hist[1] < hist 
+
+color bg = na
+if peak
+    bg := #ff51001e
+if trough
+    bg := #15ff001e
+
+bgcolor(color=bg)
+
+plotchar(peak, "go short", "P", location.top, size = size.auto, color=color.red)
+plotchar(trough, "go long", "T", location.bottom, size = size.auto, color=color.green)
+
+
+// ######################
+// Buy / Sell
+// ######################
+
+session = not na(time(timeframe.period, "0930-1600"))  and time > timestamp(2021, 01, 01, 09, 30)
+
+order_limit = 0.0
+order_limit := order_limit[1]
+
+position_size = 0.0
+position_size := position_size[1]
+
+long_buy = false
+long_sell = false
+
+if session
+
+    if position_size < strategy.position_size
+        position_size := strategy.position_size
+
+    if long_buy
+        strategy.order("enter long1", strategy.long, comment="long1", qty=1)
+    if strategy.position_size > 0 and strategy.position_size < 16
+        order_size = strategy.position_size
+        order_limit := strategy.position_avg_price*0.99
+        strategy.order("enter long"+ str.tostring(order_size), strategy.long, comment="long"+ str.tostring(order_size), qty=order_size, limit = order_limit)
+        
+    if long_sell
+        strategy.cancel_all()
+        strategy.close_all()
+        order_limit := na
+        position_size := 0
+
+else
+    strategy.cancel_all()
+
+plot(strategy.position_size > 0 ? strategy.position_avg_price: close, color = strategy.position_size > 0 ? color.yellow: na, title="Average Price")
+plot(not na(order_limit) ? order_limit : close , color = not na(order_limit)  ? color.rgb(250, 249, 179, 25): na, title="Order Price")

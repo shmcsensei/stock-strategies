@@ -1,0 +1,142 @@
+//@version=5
+strategy("UPRO 1hr",initial_capital=960,overlay=true, pyramiding = 11)
+
+// TEMP 1hr tested .. 100% Profitable, 30% Profit
+
+// Bollinger Bands
+length = input.int(100, minval=1)
+src = input(close, title="Source")
+mult = input.float(1.7, minval=0.001, maxval=50, title="StdDev")
+basis = ta.ema(src, length)
+dev = mult * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+offset = input.int(0, "Offset", minval = -500, maxval = 500)
+plot(basis, "Basis", color=#FF6D00, offset = offset)
+p1 = plot(upper, "Upper", color=#2962FF, offset = offset)
+p2 = plot(lower, "Lower", color=#2962FF, offset = offset)
+fill(p1, p2, title = "Background", color=color.rgb(33, 150, 243, 95))
+
+// Stochastic
+periodK = input.int(50, title="%K Length", minval=1)
+smoothK = input.int(10, title="%K Smoothing", minval=1)
+periodD = input.int(3, title="%D Smoothing", minval=1)
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+// plot(k, title="%K", color=#2962FF)
+// plot(d, title="%D", color=#FF6D00)
+// h0 = hline(80, "Upper Band", color=#787B86)
+// hline(50, "Middle Band", color=color.new(#787B86, 50))
+// h1 = hline(20, "Lower Band", color=#787B86)
+// fill(h0, h1, color=color.rgb(33, 150, 243, 90), title="Background")
+
+// VIX data
+vix = request.security(symbol="VIX", timeframe="", expression = close)
+vix_length = 330
+vix_upper_mult = input.float(1.7, minval=0.001, maxval=50, title="VIX Upper StdDev")
+vix_lower_mult = input.float(0.9, minval=0.001, maxval=50, title="VIX Lower StdDev")
+vix_ma = ta.ema(vix, 14)
+vix_basis = ta.ema(vix_ma, vix_length)
+vix_upper_dev = vix_upper_mult * ta.stdev(vix, vix_length)
+vix_lower_dev = vix_lower_mult * ta.stdev(vix, vix_length)
+vix_upper = vix_basis + vix_upper_dev
+vix_lower = vix_basis - vix_lower_dev
+// plot(vix)
+// plot(vix_basis, "VIX Basis", color=#FF6D00)
+// plot(vix_upper, "VIX Upper", color=#2962FF)
+// plot(vix_lower, "VIX Lower", color=#2962FF)
+
+vix_oversold = vix > vix_upper
+vix_overbought = vix < vix_lower
+
+color bg = na
+if vix_oversold
+    bg := #ffa6001e
+if vix_overbought
+    bg := #15ff001e
+
+bgcolor(color=bg)
+
+//
+
+go_short = (close > upper or open > upper) and d >= 80
+go_long = (close < lower or open < lower) and d <= 20
+
+plotchar(go_long, "go long", "L", location.top, size = size.auto, color=color.green)
+plotchar(go_short, "go short", "S", location.top, size = size.auto, color=color.red)
+
+
+session = not na(time(timeframe.period, "0830-1600"))  and time > timestamp(2021, 01, 01, 09, 30)
+session_active = not na(time(timeframe.period, "1000-1200"))
+session_end = not na(time(timeframe.period, "1545-1600"))
+
+session_orders = 0
+if session
+    session_orders := session_orders[1]
+
+long_count = 0
+long_count := long_count[1]
+
+move_percentage_max = 0.20
+move_percentage_step = move_percentage_max / 9.0
+
+strategy_price = 0.0
+strategy_price := strategy_price[1]
+
+float order_limit = na
+order_limit := order_limit[1]
+
+if session
+    if session_orders < 1
+        if long_count == 0 and go_long
+            session_orders += 1
+            long_count += 1
+            strategy_price := close*0.85
+            order_limit := strategy_price
+            strategy.order("enter long1", strategy.long, comment="long1", qty=1, limit = order_limit)
+        if strategy.position_size == 1
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*1))
+            strategy.order("enter long2", strategy.long, comment="long2", qty=1, limit = order_limit)
+        if strategy.position_size == 2
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*2))
+            strategy.order("enter long3", strategy.long, comment="long3", qty=2, limit = order_limit)
+        if strategy.position_size == 4
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*3))
+            strategy.order("enter long4", strategy.long, comment="long4", qty=4, limit = order_limit)
+        if strategy.position_size == 8
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*4))
+            strategy.order("enter long5", strategy.long, comment="long5", qty=8, limit = order_limit)
+        if strategy.position_size == 16
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*5))
+            strategy.order("enter long6", strategy.long, comment="long6", qty=16, limit = order_limit)
+        if strategy.position_size == 32
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*6))
+            strategy.order("enter long7", strategy.long, comment="long7", qty=32, limit = order_limit)
+        if strategy.position_size == 64
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*7))
+            strategy.order("enter long8", strategy.long, comment="long8", qty=64, limit = order_limit)
+        if strategy.position_size == 128
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*8))
+            strategy.order("enter long9", strategy.long, comment="long9", qty=128, limit = order_limit)
+        if strategy.position_size == 256
+            session_orders += 1
+            order_limit := strategy_price*(1-(move_percentage_step*9))
+            strategy.order("enter long10", strategy.long, comment="long10", qty=256, limit = order_limit)
+    if go_short or (strategy.position_size >= 4 and close > strategy.position_avg_price*1.1)
+        strategy.cancel_all()
+        strategy.close_all()
+        long_count := 0
+        session_orders := 0
+        order_limit := na
+        
+
+plot(strategy.position_size > 0 ? strategy.position_avg_price: close, color = strategy.position_size > 0 ? color.yellow: na)
+plot(not na(order_limit) ? order_limit : close , color = not na(order_limit)  ? color.rgb(250, 249, 179, 25): na, title="Order Price")

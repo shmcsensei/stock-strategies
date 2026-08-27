@@ -1,0 +1,52 @@
+//@version=5
+strategy("SPY Bollinger Band Strategy",initial_capital=10000,overlay=true, pyramiding = 10)
+
+// Bollinger Bands
+length = input.int(100, minval=1)
+src = input(close, title="Source")
+mult = input.float(1.7, minval=0.001, maxval=50, title="StdDev")
+basis = ta.ema(src, length)
+dev = mult * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+offset = input.int(0, "Offset", minval = -500, maxval = 500)
+plot(basis, "Basis", color=#FF6D00, offset = offset)
+p1 = plot(upper, "Upper", color=#2962FF, offset = offset)
+p2 = plot(lower, "Lower", color=#2962FF, offset = offset)
+fill(p1, p2, title = "Background", color=color.rgb(33, 150, 243, 95))
+
+// Stochastic
+periodK = input.int(50, title="%K Length", minval=1)
+smoothK = input.int(10, title="%K Smoothing", minval=1)
+periodD = input.int(3, title="%D Smoothing", minval=1)
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+// plot(k, title="%K", color=#2962FF)
+// plot(d, title="%D", color=#FF6D00)
+// h0 = hline(80, "Upper Band", color=#787B86)
+// hline(50, "Middle Band", color=color.new(#787B86, 50))
+// h1 = hline(20, "Lower Band", color=#787B86)
+// fill(h0, h1, color=color.rgb(33, 150, 243, 90), title="Background")
+
+go_short = (close > upper or open > upper) and d >= 80
+go_long = (close < lower or open < lower) and d <= 20
+
+session = not na(time(timeframe.period, "0830-1600"))  and time > timestamp(2021, 02, 01, 09, 30)
+session_active = not na(time(timeframe.period, "1000-1200"))
+session_end = not na(time(timeframe.period, "1545-1600"))
+
+session_orders = 0
+if session
+    session_orders := session_orders[1]
+
+
+if session
+    if go_long and session_orders < 1
+        qty = strategy.position_size > 0 ?  strategy.position_size : 1
+        strategy.entry("enter long", strategy.long, comment="long", qty=qty)
+        session_orders := 1
+    if go_short
+        strategy.close_all()
+        
+        
+    

@@ -1,0 +1,78 @@
+//@version=5
+strategy("Simons Daily Stochastic Strategy", shorttitle="Daily Stochastic",initial_capital=1000 )
+length = 28
+over_bought_level = 80
+over_sold_level = 20
+smooth_k = 3
+smooth_d = 6
+k = ta.sma(ta.stoch(close, high, low, length), smooth_k)
+d = ta.sma(k, smooth_d)
+go_long = ta.crossover(k,over_sold_level) and not na(k)
+go_short = ta.crossunder(k,over_bought_level) and not na(k)
+
+plot(k, title="%K", color=#2962FF)
+plot(d, title="%D", color=#FF6D00)
+plotchar(go_long, "co", "L", location.bottom, size = size.tiny, color=color.gray)
+plotchar(go_short, "cu", "S", location.top, size = size.tiny, color=color.gray)
+
+bg = color(na)
+if go_long
+    bg := color.rgb(76, 175, 79, 33)
+else if go_short
+    bg := color.rgb(255, 82, 82, 25)
+bgcolor(color = bg)
+
+h0 = hline(80, "Upper Band", color=#787B86)
+hline(50, "Middle Band", color=color.new(#787B86, 50))
+h1 = hline(20, "Lower Band", color=#787B86)
+fill(h0, h1, color=color.rgb(33, 150, 243, 90), title="Background")
+
+
+last_signal = ""
+last_signal := last_signal
+if go_long
+    last_signal := "l"
+else if go_short
+    last_signal := "s"
+
+session = not na(time(timeframe.period, "0920-1545"))
+session_active = not na(time(timeframe.period, "1000-1200"))
+session_end = not na(time(timeframe.period, "1545-1600"))
+
+non_session_signal = ""
+non_session_signal := non_session_signal[1]
+if not session
+    if go_long
+        non_session_signal := "l"
+    else if go_short
+        non_session_signal := "s"
+
+if session and not session[1]
+    if non_session_signal == "l"
+        go_long := true
+    else if non_session_signal == "s"
+        go_short := true
+    non_session_signal := ""
+
+
+if not session
+    strategy.cancel_all()
+
+if session
+    if go_long
+        strategy.entry("enter long", strategy.long, comment="enter long")
+    else if go_short
+        strategy.entry("enter short", strategy.short, comment="enter short")
+
+    if strategy.position_size > 0
+        if close>=strategy.position_avg_price
+            strategy.exit("exit long", from_entry="enter long", limit=strategy.position_avg_price * 1.022, comment = "long profit")
+        else
+            strategy.exit("exit long", from_entry="enter long", stop=strategy.position_avg_price * 0.99, comment = "long stop")
+        
+    if strategy.position_size < 0
+        if close<=strategy.position_avg_price
+            strategy.exit("exit short", from_entry="enter short", limit=strategy.position_avg_price * 0.979, comment = "short profit")
+        else
+            strategy.exit("exit short", from_entry="enter short", stop=strategy.position_avg_price * 1.01, comment = "short stop")
+    

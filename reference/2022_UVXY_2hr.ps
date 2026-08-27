@@ -1,0 +1,57 @@
+//@version=5
+strategy("UVXY Strategy",initial_capital=17000,pyramiding = 10)
+length = 100
+over_bought_level = 80
+over_sold_level = 20
+smooth_k = 3
+smooth_d = 5
+k = ta.sma(ta.stoch(close, high, low, length), smooth_k)
+d = ta.sma(k, smooth_d)
+go_long = ta.crossover(d,over_sold_level) and not na(d)
+go_short = ta.crossunder(d,over_bought_level) and not na(d)
+
+// plot(k, title="%K", color=#2962FF)
+// plot(d, title="%D", color=#FF6D00)
+// plotchar(go_long, "co", "L", location.bottom, size = size.tiny, color=color.gray)
+// plotchar(go_short, "cu", "S", location.top, size = size.tiny, color=color.gray)
+
+// bg = color(na)
+// if go_long
+//     bg := color.rgb(76, 175, 79, 33)
+// else if go_short
+//     bg := color.rgb(255, 82, 82, 25)
+// bgcolor(color = bg)
+
+// h0 = hline(80, "Upper Band", color=#787B86)
+// hline(50, "Middle Band", color=color.new(#787B86, 50))
+// h1 = hline(20, "Lower Band", color=#787B86)
+// fill(h0, h1, color=color.rgb(33, 150, 243, 90), title="Background")
+
+slow_ma = ta.ema(close,450)
+fast_ma = ta.ema(close,30)
+plot(slow_ma)
+plot(fast_ma)
+
+
+session = not na(time(timeframe.period, "0915-1545")) and time > timestamp(2022, 01, 01, 09, 30)
+session_active = not na(time(timeframe.period, "1000-1200"))
+session_end = not na(time(timeframe.period, "1545-1600"))
+
+if session
+    if ta.crossover(k,10)
+        size = strategy.position_size > 0 ? strategy.position_size : 1
+        strategy.entry("enter long", strategy.long, comment="long", qty = size)
+    // if strategy.position_size > 0 and k > 80
+        // strategy.close("enter long")
+        // strategy.entry("enter short", strategy.short, comment="short")
+
+    if strategy.position_size > 0
+        if fast_ma > slow_ma 
+            strategy.close_all()
+
+        // if close>=strategy.position_avg_price
+        //     strategy.exit("exit long", from_entry="enter long", limit=strategy.position_avg_price * 1.5, comment = "long profit")
+        // else
+            // highest = ta.highest(close,5)*0.85
+            // strategy.exit("exit long", from_entry="enter long", stop=highest, comment = "long profit")
+            // strategy.exit("exit long", from_entry="enter long", stop=strategy.position_avg_price * 0.80, comment = "long stop")

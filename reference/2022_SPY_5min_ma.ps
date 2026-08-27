@@ -1,0 +1,138 @@
+// @version=5
+strategy(title="Simons Weekly EMA Strategy", shorttitle="Weekly EMA", initial_capital=1000)
+
+// Plot colors
+col_grow_above = input(#26A69A, "Above Grow", group="Histogram", inline="Above")
+col_fall_above = input(#B2DFDB, "Fall", group="Histogram", inline="Above")
+col_grow_below = input(#FFCDD2, "Below Grow", group="Histogram", inline="Below")
+col_fall_below = input(#FF5252, "Fall", group="Histogram", inline="Below")
+
+// Calculating Simons broad MACD
+ema1 = ta.ema(open, 36)
+ema2 = ta.ema(open, 75)
+ema3 = ta.ema(open, 150)
+ema4 = ta.ema(open, 225)
+ema5 = ta.ema(open, 300)
+ema6 = ta.ema(open, 375)
+ema7 = ta.ema(open, 450)
+ema8 = ta.ema(open, 525)
+ema9 = ta.ema(open, 600)
+macd1 = ema1-ema9
+macd2 = ema2-ema9
+macd3 = ema3-ema9
+macd4 = ema4-ema9
+macd5 = ema5-ema9
+macd6 = ema6-ema9
+macd7 = ema7-ema9
+macd8 = ema8-ema9
+
+plot(macd1, color=#fdfdfd)
+plot(macd2, color=#d5e0ff)
+plot(macd3, color=#9db6fb)
+plot(macd4, color=#7096ff)
+plot(macd5, color=#5a85fb)
+plot(macd6, color=#5381ff)
+plot(macd7, color=#2f65f8)
+plot(macd8, color=#0f4fff)
+
+ind = 0.0
+ind += macd1 - macd8
+ind += macd2 - macd8
+ind += macd3 - macd8
+ind += macd4 - macd8
+ind += macd5 - macd8
+ind += macd6 - macd8
+ind += macd7 - macd8
+ind := ind / 7
+
+plot(ind, title="Histogram", style=plot.style_columns, color=(ind>=0 ? (ind[1] < ind ? col_grow_above : col_fall_above) : (ind[1] < ind ? col_grow_below : col_fall_below)))
+
+// Background singals
+bg = color(na)
+
+// predictor
+lookback = 10
+avg_move = 0.0
+for i = 0 to lookback-1
+    avg_move+= ind[i] - ind[i+1]
+avg_move := avg_move / lookback
+if ind>0 and (ind + avg_move*10) < 0
+    bg := color.rgb(255, 82, 82, 75)
+else if ind<0 and (ind + avg_move*10) > 0
+    bg := color.rgb(76, 175, 79, 73)
+
+// transitions
+if ind>=0 and ind[1]<0
+    bg := color.rgb(76, 175, 79, 33)
+else if ind<=0 and ind[1]>0
+    bg := color.rgb(255, 82, 82, 25)
+bgcolor(color = bg)
+
+
+
+// Calculating Strategy
+green = close > open
+red = close < open
+
+session = not na(time(timeframe.period, "0915-1600"))
+session_active = not na(time(timeframe.period, "1000-1200"))
+session_end = not na(time(timeframe.period, "1545-1600"))
+
+positive_momentium = ind>=0
+positive_acceleration = positive_momentium and ind[1] < ind 
+positive_deceleration = positive_momentium and ind[1] >= ind 
+
+negative_momentium = ind<0
+negative_deceleration = negative_momentium and ind[1] < ind
+negative_acceleration = negative_momentium and ind[1] >= ind
+
+session_orders = 0
+session_orders := session_orders[1]
+session_open = 0.0
+session_open := session_open[1]
+
+if session and not session[1]
+    session_open := open
+    session_orders := 0
+
+momentium_orders = 0
+momentium_orders := momentium_orders[1]
+if (positive_momentium and not positive_momentium[1]) or (negative_momentium and not negative_momentium[1])
+    momentium_orders := 0
+
+order_bar_count = 0
+order_bar_count := order_bar_count[1]
+if strategy.position_size > 0 
+    order_bar_count += 1
+
+if not session
+    strategy.cancel_all() 
+
+if session
+    if strategy.position_size==0 and session_orders<1 and momentium_orders<1
+        if positive_acceleration
+            session_orders += 1
+            momentium_orders+=1
+            strategy.entry("Enter Long", strategy.long)
+        else if negative_acceleration
+            session_orders += 1
+            momentium_orders+=1
+            strategy.entry("Enter Short", strategy.short)
+
+
+    if strategy.position_size > 0
+        if close>=strategy.position_avg_price
+            strategy.exit("Exit Long", from_entry="Enter Long", limit=strategy.position_avg_price * 1.02, comment = "long profit")
+        else if negative_momentium
+            strategy.close_all(comment = "long neg_mom")
+        else
+            strategy.exit("Exit Long", from_entry="Enter Long", stop=strategy.position_avg_price * 0.99, comment = "long stop")
+    
+    if strategy.position_size < 0
+        if close<=strategy.position_avg_price
+            strategy.exit("Exit Short", from_entry="Enter Short", limit=strategy.position_avg_price * 0.98, comment = "short profit")
+        else if positive_momentium
+            strategy.close_all(comment = "short pos_mom")
+        else
+            strategy.exit("Exit Short", from_entry="Enter Short", stop=strategy.position_avg_price * 1.01, comment = "short stop")
+
