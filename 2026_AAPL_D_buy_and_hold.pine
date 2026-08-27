@@ -1,0 +1,51 @@
+//@version=6
+// Apply to a regular-candle AAPL chart on the 1D timeframe.
+// One entry, then hold. Historical results do not guarantee future returns.
+strategy(
+     title = "AAPL Buy and Hold (one trade)",
+     overlay = true,
+     initial_capital = 10000,
+     currency = currency.USD,
+     pyramiding = 0,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.01, // 1 bp per side; adjust to match the broker.
+     slippage = 1,
+     margin_long = 100,
+     margin_short = 100,
+     calc_on_every_tick = false,
+     process_orders_on_close = false)
+
+if not timeframe.isdaily
+    runtime.error("Apply this strategy to a 1D AAPL chart using standard candles.")
+
+enforceAapl = input.bool(true, "Require AAPL chart")
+if enforceAapl and syminfo.ticker != "AAPL"
+    runtime.error("This strategy is designed for AAPL. Disable 'Require AAPL chart' only for separate research.")
+
+// Apple began public trading on December 12, 1980. The order fills on the next
+// available bar because process_orders_on_close is disabled.
+startDate = input.time(timestamp("12 Dec 1980 00:00 +0000"), "Buy signal date")
+
+// Closing the position makes Strategy Tester report one completed trade. Disable
+// this for a true ongoing hold. Change the date to compare fixed test periods.
+closeAtTestEnd = input.bool(true, "Close at test end")
+testEndDate = input.time(timestamp("30 Jun 2026 00:00 +0000"), "Test end signal date")
+allocationPercent = input.float(99.0, "Capital invested (%)", minval = 1.0, maxval = 100.0, step = 0.5)
+
+var bool entrySubmitted = false
+entryWindowOpen = time >= startDate and (not closeAtTestEnd or time < testEndDate)
+entrySignal = not entrySubmitted and entryWindowOpen
+
+if entrySignal
+    quantity = math.floor(strategy.equity * allocationPercent / 100 / close)
+    if quantity >= 1
+        strategy.entry("Long", strategy.long, qty = quantity, comment = "Buy and hold")
+        entrySubmitted := true
+
+if closeAtTestEnd and strategy.position_size > 0 and time >= testEndDate
+    strategy.close("Long", comment = "Backtest end")
+
+averagePrice = strategy.position_size > 0 ? strategy.position_avg_price : na
+plot(averagePrice, "Average purchase price", color = color.blue, style = plot.style_linebr, linewidth = 2)
+
+alertcondition(entrySignal, "AAPL buy-and-hold entry", "AAPL buy-and-hold entry signal")

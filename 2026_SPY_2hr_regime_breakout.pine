@@ -1,0 +1,92 @@
+//@version=6
+// Apply to regular-candle SPY on a 120-minute chart. Research strategy; no return guarantee.
+strategy(
+     title = "SPY 2H Confirmed-Regime Breakout",
+     overlay = true,
+     initial_capital = 10000,
+     currency = currency.USD,
+     pyramiding = 0,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.01,
+     slippage = 1,
+     margin_long = 100,
+     margin_short = 100,
+     calc_on_every_tick = false,
+     process_orders_on_close = false)
+
+if timeframe.in_seconds() != timeframe.in_seconds("120")
+    runtime.error("Apply this strategy to a 120-minute SPY chart using standard candles.")
+
+riskPercent = input.float(0.35, "Equity risk per trade (%)", minval = 0.10, maxval = 1.00, step = 0.05)
+stopAtrMult = input.float(1.8, "Initial stop (ATR)", minval = 0.5, step = 0.1)
+trailAtrMult = input.float(2.8, "Trailing stop (ATR)", minval = 1.0, step = 0.1)
+startDate = input.time(timestamp("01 Jan 2005 00:00 +0000"), "Start date")
+
+// All higher-timeframe data is from the PRIOR completed daily bar. This deliberately
+// avoids the live/historical mismatch caused by reading the current, unfinished day.
+[dailyClose, dailySma200] = request.security(
+     syminfo.tickerid,
+     "D",
+     [close[1], ta.sma(close, 200)[1]],
+     lookahead = barmerge.lookahead_on)
+
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+atr = ta.atr(14)
+rsi = ta.rsi(close, 14)
+
+dailyRegime = dailyClose > dailySma200
+intradayTrend = close > ema20 and ema20 > ema50
+breakoutLevel = ta.highest(high, 12)[1]
+breakout = close > breakoutLevel
+momentumOK = rsi >= 52 and rsi < 72
+regularHours = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+
+// One entry per day prevents repeated breakout chasing in the same trend.
+var bool enteredToday = false
+if timeframe.change("D")
+    enteredToday := false
+
+inPosition = strategy.position_size > 0
+entrySignal = time >= startDate and regularHours and not inPosition and not enteredToday and dailyRegime and intradayTrend and breakout and momentumOK
+
+// Risk-based, cash-only size. The strategy cannot borrow and never adds to a loser.
+riskPerShare = atr * stopAtrMult
+riskShares = riskPerShare > 0 ? math.floor(strategy.equity * riskPercent / 100 / riskPerShare) : 0
+cashShares = math.floor(strategy.equity / close)
+quantity = math.min(riskShares, cashShares)
+
+var float signalAtr = na
+var float peakHigh = na
+var float stopPrice = na
+
+if entrySignal and quantity >= 1
+    signalAtr := atr
+    enteredToday := true
+    strategy.entry("Long", strategy.long, qty = quantity, comment = "2H regime breakout")
+    strategy.exit("Protective stop", from_entry = "Long", stop = close - signalAtr * stopAtrMult)
+
+newLong = inPosition and strategy.position_size[1] <= 0
+if newLong
+    peakHigh := high
+    stopPrice := strategy.position_avg_price - signalAtr * stopAtrMult
+
+if inPosition
+    peakHigh := math.max(nz(peakHigh, high), high)
+    initialStop = strategy.position_avg_price - signalAtr * stopAtrMult
+    trailingStop = peakHigh - atr * trailAtrMult
+    stopPrice := math.max(nz(stopPrice, initialStop), initialStop, trailingStop)
+    strategy.exit("Protective stop", from_entry = "Long", stop = stopPrice)
+
+    // Leave promptly if both the 2H trend and the confirmed daily regime fail.
+    if (close < ema20 and rsi < 48) or not dailyRegime
+        strategy.close("Long", comment = "Trend exit")
+else if not entrySignal
+    signalAtr := na
+    peakHigh := na
+    stopPrice := na
+
+plot(ema20, "2H EMA 20", color = color.orange)
+plot(ema50, "2H EMA 50", color = color.blue)
+plot(inPosition ? stopPrice : na, "Active stop", color = color.red, style = plot.style_linebr)
+plotshape(entrySignal and quantity >= 1, title = "Long signal", style = shape.triangleup, location = location.belowbar, color = color.lime, size = size.tiny)

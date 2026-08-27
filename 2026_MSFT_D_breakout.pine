@@ -1,0 +1,96 @@
+//@version=6
+// Apply to a regular-candle MSFT chart on the 1D timeframe.
+// Long only. Research tool; it does not guarantee returns.
+strategy(
+     title = "MSFT Daily Trend Breakout (risk controlled)",
+     overlay = true,
+     initial_capital = 10000,
+     currency = currency.USD,
+     pyramiding = 0,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.01, // 1 bp per side; adjust to match the broker.
+     slippage = 1,
+     margin_long = 100,
+     margin_short = 100,
+     calc_on_every_tick = false,
+     process_orders_on_close = false)
+
+if not timeframe.isdaily
+    runtime.error("Apply this strategy to a 1D MSFT chart using standard candles.")
+
+enforceMsft = input.bool(true, "Require MSFT chart")
+if enforceMsft and syminfo.ticker != "MSFT"
+    runtime.error("This strategy is designed for MSFT. Disable 'Require MSFT chart' to research another symbol.")
+
+// Position sizing is based on the dollar amount lost if the initial stop is reached.
+riskPercent = input.float(0.50, "Equity risk per trade (%)", minval = 0.10, maxval = 1.00, step = 0.05)
+breakoutLookback = input.int(20, "Breakout lookback (days)", minval = 5)
+atrLength = input.int(14, "ATR length", minval = 5)
+stopAtrMult = input.float(2.5, "Initial stop (ATR)", minval = 1.0, step = 0.1)
+trailAtrMult = input.float(3.0, "Trailing stop (ATR)", minval = 1.0, step = 0.1)
+startDate = input.time(timestamp("01 Jan 2005 00:00 +0000"), "Start date")
+
+// TradingView does not make a stable future earnings calendar available in every
+// chart context. Leave this disabled until the date is verified from the company.
+useEarningsFilter = input.bool(false, "Block entries near earnings")
+nextEarningsDate = input.time(timestamp("01 Jan 2027 00:00 +0000"), "Verified next earnings date")
+earningsWindowDays = input.int(5, "Days to avoid before/after earnings", minval = 0, maxval = 20)
+
+sma50 = ta.sma(close, 50)
+sma200 = ta.sma(close, 200)
+atr = ta.atr(atrLength)
+breakoutLevel = ta.highest(high, breakoutLookback)[1]
+
+// A cross confirms that the signal did not already occur on an earlier bar.
+trendOk = close > sma200
+breakout = close > breakoutLevel and close[1] <= breakoutLevel[1]
+millisecondsPerDay = 24 * 60 * 60 * 1000
+nearEarnings = useEarningsFilter and math.abs(time - nextEarningsDate) <= earningsWindowDays * millisecondsPerDay
+inPosition = strategy.position_size > 0
+entrySignal = time >= startDate and not inPosition and trendOk and breakout and not nearEarnings
+
+// Cash-only sizing prevents leverage. It also means very small accounts may not
+// receive a trade when MSFT's ATR-implied risk is too large.
+riskPerShare = atr * stopAtrMult
+riskShares = riskPerShare > 0 ? math.floor(strategy.equity * riskPercent / 100 / riskPerShare) : 0
+cashShares = math.floor(strategy.equity / close)
+quantity = math.min(riskShares, cashShares)
+
+var float entryAtr = na
+var float peakHigh = na
+var float stopPrice = na
+
+if entrySignal and quantity >= 1
+    entryAtr := atr
+    strategy.entry("Long", strategy.long, qty = quantity, comment = "20-day breakout")
+    // Protect the pending next-bar entry using the signal-bar ATR.
+    strategy.exit("Protective stop", from_entry = "Long", stop = close - entryAtr * stopAtrMult)
+
+newLong = inPosition and strategy.position_size[1] <= 0
+if newLong
+    peakHigh := high
+    stopPrice := strategy.position_avg_price - entryAtr * stopAtrMult
+
+if inPosition
+    peakHigh := math.max(nz(peakHigh, high), high)
+    initialStop = strategy.position_avg_price - entryAtr * stopAtrMult
+    trailingStop = peakHigh - atr * trailAtrMult
+    stopPrice := math.max(nz(stopPrice, initialStop), initialStop, trailingStop)
+    strategy.exit("Protective stop", from_entry = "Long", stop = stopPrice)
+
+    // A confirmed close below the 50-day average is a separate trend-failure exit.
+    if close < sma50
+        strategy.close("Long", comment = "50-day trend exit")
+else if not entrySignal
+    entryAtr := na
+    peakHigh := na
+    stopPrice := na
+
+plot(sma50, "50-day SMA", color = color.blue)
+plot(sma200, "200-day SMA", color = color.purple, linewidth = 2)
+plot(breakoutLevel, "Prior 20-day high", color = color.gray, style = plot.style_linebr)
+plot(inPosition ? stopPrice : na, "Active stop", color = color.red, style = plot.style_linebr, linewidth = 2)
+plotshape(entrySignal and quantity >= 1, title = "Long signal", style = shape.triangleup, location = location.belowbar, color = color.lime, size = size.tiny)
+
+alertcondition(entrySignal and quantity >= 1, "MSFT breakout entry", "MSFT daily trend-breakout entry signal")
+alertcondition(inPosition and close < sma50, "MSFT trend exit", "MSFT closed below its 50-day moving average")

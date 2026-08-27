@@ -1,0 +1,102 @@
+//@version=6
+// Apply to a regular-candle MSFT chart on the 60-minute timeframe.
+// Long only. Research tool; it does not guarantee returns.
+strategy(
+     title = "MSFT 1H Confirmed-Regime Breakout",
+     overlay = true,
+     initial_capital = 10000,
+     currency = currency.USD,
+     pyramiding = 0,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.01, // 1 bp per side; adjust to match the broker.
+     slippage = 1,
+     margin_long = 100,
+     margin_short = 100,
+     calc_on_every_tick = false,
+     process_orders_on_close = false)
+
+if timeframe.in_seconds() != timeframe.in_seconds("60")
+    runtime.error("Apply this strategy to a 60-minute MSFT chart using standard candles.")
+
+enforceMsft = input.bool(true, "Require MSFT chart")
+if enforceMsft and syminfo.ticker != "MSFT"
+    runtime.error("This strategy is designed for MSFT. Disable 'Require MSFT chart' to research another symbol.")
+
+// A small risk budget avoids sizing an hourly trade as if its stop cannot gap.
+riskPercent = input.float(0.35, "Equity risk per trade (%)", minval = 0.10, maxval = 1.00, step = 0.05)
+breakoutLookback = input.int(12, "Breakout lookback (hours)", minval = 4)
+atrLength = input.int(14, "ATR length", minval = 5)
+stopAtrMult = input.float(1.8, "Initial stop (ATR)", minval = 0.5, step = 0.1)
+trailAtrMult = input.float(2.8, "Trailing stop (ATR)", minval = 1.0, step = 0.1)
+startDate = input.time(timestamp("01 Jan 2005 00:00 +0000"), "Start date")
+
+// The daily values deliberately use the prior completed daily bar. This prevents
+// a live/historical mismatch from reading the unfinished current day.
+[priorDailyClose, priorDailySma200] = request.security(
+     syminfo.tickerid,
+     "D",
+     [close[1], ta.sma(close, 200)[1]],
+     lookahead = barmerge.lookahead_on)
+
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+atr = ta.atr(atrLength)
+breakoutLevel = ta.highest(high, breakoutLookback)[1]
+regularHours = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+dailyRegime = priorDailyClose > priorDailySma200
+hourlyTrend = close > ema20 and ema20 > ema50
+breakout = close > breakoutLevel and close[1] <= breakoutLevel[1]
+inPosition = strategy.position_size > 0
+
+// At most one entry per calendar day reduces repeated breakout chasing.
+var bool enteredToday = false
+if timeframe.change("D")
+    enteredToday := false
+
+entrySignal = time >= startDate and regularHours and not inPosition and not enteredToday and dailyRegime and hourlyTrend and breakout
+
+// Cash-only and risk-based position sizing: use whichever share count is smaller.
+riskPerShare = atr * stopAtrMult
+riskShares = riskPerShare > 0 ? math.floor(strategy.equity * riskPercent / 100 / riskPerShare) : 0
+cashShares = math.floor(strategy.equity / close)
+quantity = math.min(riskShares, cashShares)
+
+var float entryAtr = na
+var float peakHigh = na
+var float stopPrice = na
+
+if entrySignal and quantity >= 1
+    entryAtr := atr
+    enteredToday := true
+    strategy.entry("Long", strategy.long, qty = quantity, comment = "1H regime breakout")
+    // Protect a next-bar entry using the ATR known at the signal.
+    strategy.exit("Protective stop", from_entry = "Long", stop = close - entryAtr * stopAtrMult)
+
+newLong = inPosition and strategy.position_size[1] <= 0
+if newLong
+    peakHigh := high
+    stopPrice := strategy.position_avg_price - entryAtr * stopAtrMult
+
+if inPosition
+    peakHigh := math.max(nz(peakHigh, high), high)
+    initialStop = strategy.position_avg_price - entryAtr * stopAtrMult
+    trailingStop = peakHigh - atr * trailAtrMult
+    stopPrice := math.max(nz(stopPrice, initialStop), initialStop, trailingStop)
+    strategy.exit("Protective stop", from_entry = "Long", stop = stopPrice)
+
+    // Exit after an hourly trend failure or a confirmed failure of the daily regime.
+    if (close < ema20 and ema20 < ema50) or not dailyRegime
+        strategy.close("Long", comment = "Trend exit")
+else if not entrySignal
+    entryAtr := na
+    peakHigh := na
+    stopPrice := na
+
+plot(ema20, "20-hour EMA", color = color.orange)
+plot(ema50, "50-hour EMA", color = color.blue)
+plot(breakoutLevel, "Prior breakout high", color = color.gray, style = plot.style_linebr)
+plot(inPosition ? stopPrice : na, "Active stop", color = color.red, style = plot.style_linebr, linewidth = 2)
+plotshape(entrySignal and quantity >= 1, title = "Long signal", style = shape.triangleup, location = location.belowbar, color = color.lime, size = size.tiny)
+
+alertcondition(entrySignal and quantity >= 1, "MSFT 1H breakout entry", "MSFT 1H confirmed-regime breakout entry signal")
+alertcondition(inPosition and ((close < ema20 and ema20 < ema50) or not dailyRegime), "MSFT 1H trend exit", "MSFT 1H trend-exit signal")

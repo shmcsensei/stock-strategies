@@ -1,0 +1,51 @@
+//@version=6
+// Apply to a regular-candle QQQ chart on the 1D timeframe.
+// One entry, then hold. Historical results do not guarantee future returns.
+strategy(
+     title = "QQQ Buy and Hold (one trade)",
+     overlay = true,
+     initial_capital = 10000,
+     currency = currency.USD,
+     pyramiding = 0,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.01, // 1 bp per side; adjust to match the broker.
+     slippage = 1,
+     margin_long = 100,
+     margin_short = 100,
+     calc_on_every_tick = false,
+     process_orders_on_close = false)
+
+if not timeframe.isdaily
+    runtime.error("Apply this strategy to a 1D QQQ chart using standard candles.")
+
+enforceQqq = input.bool(true, "Require QQQ chart")
+if enforceQqq and syminfo.ticker != "QQQ"
+    runtime.error("This strategy is designed for QQQ. Disable 'Require QQQ chart' only for separate research.")
+
+// QQQ began trading on March 10, 1999. Orders fill on the following bar because
+// process_orders_on_close is disabled, avoiding an unrealistic same-close fill.
+startDate = input.time(timestamp("10 Mar 1999 00:00 +0000"), "Buy signal date")
+
+// Closing the position makes Strategy Tester report a completed trade. Disable
+// this for a true ongoing hold. The default closes after the June 2026 test period.
+closeAtTestEnd = input.bool(true, "Close at test end")
+testEndDate = input.time(timestamp("30 Jun 2026 00:00 +0000"), "Test end signal date")
+allocationPercent = input.float(99.0, "Capital invested (%)", minval = 1.0, maxval = 100.0, step = 0.5)
+
+var bool entrySubmitted = false
+entryWindowOpen = time >= startDate and (not closeAtTestEnd or time < testEndDate)
+entrySignal = not entrySubmitted and entryWindowOpen
+
+if entrySignal
+    quantity = math.floor(strategy.equity * allocationPercent / 100 / close)
+    if quantity >= 1
+        strategy.entry("Long", strategy.long, qty = quantity, comment = "Buy and hold")
+        entrySubmitted := true
+
+if closeAtTestEnd and strategy.position_size > 0 and time >= testEndDate
+    strategy.close("Long", comment = "Backtest end")
+
+averagePrice = strategy.position_size > 0 ? strategy.position_avg_price : na
+plot(averagePrice, "Average purchase price", color = color.blue, style = plot.style_linebr, linewidth = 2)
+
+alertcondition(entrySignal, "QQQ buy-and-hold entry", "QQQ buy-and-hold entry signal")
